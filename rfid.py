@@ -1,4 +1,6 @@
 import multiprocessing
+from multiprocessing import Queue,Process
+import queue
 import threading
 import enumclass as define
 import time
@@ -8,35 +10,52 @@ class G():
     STATUS = define.RFIDStatus.FREE
     LOCK = threading.Lock()
 
-def listenToLock(p_fg : multiprocessing.Pipe):
+def listenToLock(rx_fg : multiprocessing.Queue,tx_fg : multiprocessing.Queue):
     while True:
-        #receive by block method
-        r = p_fg.recv()
+        while True:
+                try:
+                    r = rx_fg.get_nowait()
+                    break
+                except queue.Empty:
+                    time.sleep(0.1)
         G.LOCK.acquire()
         if r == define.Request.LOCK_UNLOCK:
-            p_fg.send(G.STATUS)
-            #!!!! maybe exist process risk
+            while True:
+                try:
+                    tx_fg.put_nowait(G.STATUS)
+                    break
+                except queue.Full:
+                    time.sleep(0.1)
             if G.STATUS == define.RFIDStatus.FREE:
                 G.STATUS = define.RFIDStatus.BUSY_FOR_USER
         G.LOCK.release()
         if G.KILL_THREAD == True:
             break
 
-def listenToNetwork(p_nw : multiprocessing.Pipe):
+def listenToNetwork(rx_nw:multiprocessing.Queue,tx_nw:multiprocessing.Queue):
     while True:
-        #receive by block method
-        r = p_nw.recv()
+        while True:
+            try:
+                r = rx_nw.get_nowait()
+                break
+            except queue.Empty:
+                time.sleep(0.1)
         G.LOCK.acquire()
         if r == define.Request.NW_CHECK:
-            p_nw.send(G.STATUS)
+            while True:
+                try:
+                    tx_nw.put_nowait(G.STATUS)
+                    break
+                except queue.Full:
+                    time.sleep(0.1)
             if G.STATUS == define.RFIDStatus.FREE:
                 G.STATUS = define.RFIDStatus.BUSY_FOR_SERVER
         G.LOCK.release()
         if G.KILL_THREAD == True:
             break
 
-def readerWork():
-    print("reader work……")
+def readerWork(server):
+    print("reader work for",server,"......")
     time.sleep(1)
     G.LOCK.acquire()
     G.STATUS = define.RFIDStatus.FREE 
@@ -46,14 +65,14 @@ def init():
     G.STATUS = define.RFIDStatus.FREE
     print("rfid init")
 
-def rfidWork(p_fg : multiprocessing.Pipe,p_nw : multiprocessing.Pipe):
+def rfidWork(rx_fg : multiprocessing.Queue,tx_fg : multiprocessing.Queue,rx_nw:multiprocessing.Queue,tx_nw:multiprocessing.Queue):
     init()
     try:
         thread_list = []
-        t_lock = threading.Thread(target=listenToLock,args=(p_fg,),name='listen to lock')
+        t_lock = threading.Thread(target=listenToLock,args=(rx_fg,tx_fg,),name='listen to lock')
         t_lock.start()
         thread_list.append(t_lock)
-        t_nw = threading.Thread(target=listenToNetwork,args=(p_nw,),name='listen to nw')
+        t_nw = threading.Thread(target=listenToNetwork,args=(rx_nw,tx_nw,),name='listen to nw')
         t_nw.start()
         thread_list.append(t_nw)
     except:
@@ -62,27 +81,9 @@ def rfidWork(p_fg : multiprocessing.Pipe,p_nw : multiprocessing.Pipe):
         G.LOCK.acquire()
         if G.STATUS == define.RFIDStatus.BUSY_FOR_USER:
             G.LOCK.release()
-            readerWork()
+            readerWork("user")
         elif G.STATUS == define.RFIDStatus.BUSY.BUSY_FOR_SERVER:
             G.LOCK.release()
-            readerWork()
+            readerWork("server")
         else:
             G.LOCK.release()
-
-
-# queue method(still exist some bug)
-# while True:
-#     if not q_rfid_lock.empty():
-#         r = q_rfid_lock.get(timeout=1)
-#         print("rfid get",r)
-#         if r == define.Request.UNLOCK:
-#             q_rfid_lock.put(STATUS,timeout=1)
-#             time.sleep(0.1)
-#             if STATUS == define.RFIDStatus.FREE:
-#                 # STATUS = define.RFIDStatus.BUSY_FOR_USER
-#                 continue
-#         else:
-#             continue
-#     else:
-#         #print("rfid: the queue is empty!")
-#         continue

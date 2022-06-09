@@ -1,13 +1,25 @@
 import multiprocessing
+from multiprocessing import Queue,Process
 import _thread
+import queue
 import enumclass as define
 import time
 
-def listenToRFID(p_rfid : multiprocessing.Pipe):
+def listenToRFID(rx_rfid : multiprocessing.Queue,tx_rfid:multiprocessing.Queue):
     while True:
         time.sleep(5)
-        p_rfid.send(define.Request.NW_CHECK)
-        r = p_rfid.recv()
+        while True:
+                try:
+                    tx_rfid.put_nowait(define.Request.NW_CHECK)
+                    break
+                except queue.Full:
+                    time.sleep(0.1)
+        while True:
+                try:
+                    r = rx_rfid.get_nowait()
+                    break
+                except queue.Empty:
+                    time.sleep(0.1)
         if r == define.RFIDStatus.FREE:
             print("network:request check success")
         else:
@@ -16,10 +28,10 @@ def listenToRFID(p_rfid : multiprocessing.Pipe):
 def init():
     print("network init")
 
-def networkWork(p_rfid : multiprocessing.Pipe):
+def networkWork(rx_rfid : multiprocessing.Queue,tx_rfid:multiprocessing.Queue):
     init()
     try:
-        _thread.start_new_thread(listenToRFID,(p_rfid,))
+        _thread.start_new_thread(listenToRFID,(rx_rfid,tx_rfid,))
     except:
         print("network Error: create thread unsuccessfully")
     while True:
